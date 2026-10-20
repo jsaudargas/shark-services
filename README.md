@@ -38,17 +38,24 @@ Service ids: `junk`, `mechanic`, `small-engine`, `handyman`, `snow-leaf`, `dryer
 | `src/funnel/controls.tsx` | Option cards, pills, volume gauge, text fields, photo upload |
 | `src/funnel/steps.tsx` | Service / questions / contact / timing / review screens |
 | `src/pages/Request.tsx` | Funnel page: progress, navigation, browser back support, summary panel, confirmation |
-| `src/lib/leads.ts` | Lead type, `submitLead()` adapter (demo localStorage or real webhook), sample data |
+| `src/lib/leads.ts` | Lead type, `submitLead()` (demo localStorage or live email endpoint), sample data |
+| `public/api/lead.php` | Live mode: validates the request and emails the owner (PHP `mail()`, no third party) |
 | `src/lib/analytics.ts` | `track()` events, local-only until `VITE_ANALYTICS=on` |
 | `src/components/ui/Glass.tsx` + `src/index.css` | Liquid glass system (`.lg`, `.lg-red`, `.lg-light`, `.lg-ink`) and SVG displacement filters |
 
-## Demo vs production
+## Demo vs live
 
-- **Demo (default):** submissions are saved to this browser's `localStorage` and shown in `/demo/leads`.
-  Nothing is sent to the business. The confirmation screen says so.
-- **Production:** set `VITE_LEAD_WEBHOOK_URL` (Zapier / Make / n8n / CRM endpoint) at build time.
-  `submitLead()` POSTs the lead JSON there, the demo notices disappear, and email/SMS alerts or calendar
-  sync are configured on that endpoint.
+- **Demo (`npm run build`, default):** submissions are saved to this browser's `localStorage` and shown
+  in `/demo/leads`. Nothing is sent to the business. The confirmation screen says so.
+- **Live (`npm run build:live`):** the form POSTs to `public/api/lead.php` on the same Hostinger site,
+  which **emails the owner** every request: service, answers, the times that work for the customer,
+  contact details with Call/Text/Email buttons, and photos as attachments. It uses PHP `mail()`, so
+  there's no third-party service and nothing costs credits. Setup steps: [public/api/README.md](public/api/README.md).
+
+## Scheduling
+
+There are no booking slots. The customer chooses "As soon as possible", "I'm flexible", or **several
+day + time-of-day options that work for them** (up to 5). The owner gets them all and confirms one.
 
 ## Liquid glass
 

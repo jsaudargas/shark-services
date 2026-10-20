@@ -4,8 +4,11 @@ dist-server/
 .env
 .env.*
 !.env.example
+!.env.live
 .site-password
 *.log
 .DS_Store
 Thumbs.db
 .playwright-mcp/
+public/api/config.php
+public/api/outbox/

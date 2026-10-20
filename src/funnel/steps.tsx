@@ -1,8 +1,21 @@
-import { CalendarDays, Hourglass, Lock, MapPin, Pencil, Phone, Shuffle, Zap } from 'lucide-react'
+import { useState } from 'react'
+import { CalendarDays, Check, Hourglass, Lock, MapPin, Pencil, Phone, Shuffle, X, Zap } from 'lucide-react'
 import { business } from '@/config/business'
 import { serviceById, services, type Field, type Screen } from '@/config/services'
-import { describeAnswers, describeTiming, methodLabels, windowLabels, type AnswerValue, type ContactMethod, type TimeWindow } from '@/lib/leads'
-import { formatUsPhone, isValidZip, looksLikeLongIsland } from '@/lib/format'
+import {
+  describeAnswers,
+  MAX_SLOTS,
+  methodLabels,
+  slotLabel,
+  sortSlots,
+  timingLines,
+  windowLabels,
+  type AnswerValue,
+  type Availability,
+  type ContactMethod,
+  type TimeWindow,
+} from '@/lib/leads'
+import { formatUsPhone, isValidZip, longDate, looksLikeLongIsland } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { ChoiceCards, ErrorText, Pills, PhotoField, TextArea, TextField, VolumeCards } from './controls'
 import { DatePicker } from './DatePicker'
@@ -248,11 +261,15 @@ export function ContactStep({
 }
 
 /* ----------------------------------------------------------------- timing */
+// No booking slots: the customer lists days + times of day that work for them,
+// and the team confirms one. Nothing is reserved on a calendar.
 const timingOptions = [
   { value: 'asap', label: 'As soon as possible', hint: "We'll reach out to find the earliest time", icon: Zap },
-  { value: 'date', label: 'Pick a preferred date', hint: 'Choose a day and time of day', icon: CalendarDays },
+  { value: 'times', label: 'Choose times that work', hint: 'Pick one or more days and times', icon: CalendarDays },
   { value: 'flexible', label: "I'm flexible", hint: 'Any time that works for the team', icon: Shuffle },
 ]
+const WINDOWS: TimeWindow[] = ['morning', 'afternoon', 'evening', 'any']
+const windowHints: Record<TimeWindow, string> = { morning: '8am to 12pm', afternoon: '12pm to 4pm', evening: '4pm to 7pm', any: 'Whenever that day' }
 
 export function TimingStep({
   timing,
@@ -265,6 +282,20 @@ export function TimingStep({
   onModePicked: (mode: string) => void
   errors: Errors
 }) {
+  const [day, setDay] = useState(() => timing.slots[timing.slots.length - 1]?.date ?? '')
+  const full = timing.slots.length >= MAX_SLOTS
+  const onDay = (w: TimeWindow) => timing.slots.some((s) => s.date === day && s.window === w)
+
+  const toggle = (w: TimeWindow) => {
+    if (!day) return
+    if (onDay(w)) return set({ slots: timing.slots.filter((s) => !(s.date === day && s.window === w)) })
+    // "Any time" replaces specific windows for that day, and the other way round
+    const rest = timing.slots.filter((s) => s.date !== day || (w !== 'any' && s.window !== 'any'))
+    if (rest.length >= MAX_SLOTS) return
+    set({ slots: sortSlots([...rest, { date: day, window: w }]) })
+  }
+  const remove = (slot: Availability) => set({ slots: timing.slots.filter((s) => s !== slot) })
+
   return (
     <div className="grid gap-8">
       <div>
@@ -281,42 +312,89 @@ export function TimingStep({
         <ErrorText>{errors.mode}</ErrorText>
       </div>
 
-      {timing.mode === 'date' && (
-        <div className="grid gap-8 md:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-          <div>
-            <p className="mb-2.5 text-[14px] font-semibold text-white">Preferred date</p>
-            <DatePicker value={timing.date} onChange={(date) => set({ date })} />
-            <ErrorText>{errors.date}</ErrorText>
-          </div>
-          <div>
-            <p className="mb-2.5 text-[14px] font-semibold text-white">Time of day</p>
-            <div className="grid gap-2">
-              {(['morning', 'afternoon', 'evening', 'any'] as TimeWindow[]).map((w) => {
-                const on = timing.window === w
-                return (
-                  <button
-                    key={w}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => set({ window: w })}
-                    className={cn('lg flex h-14 items-center justify-between rounded-2xl px-5 text-left font-display text-[15px] font-semibold text-white', on && 'ring-2 ring-red')}
-                    style={{ '--lg-tint': on ? 'rgba(229,35,41,0.16)' : 'rgba(255,255,255,0.045)' } as React.CSSProperties}
-                  >
-                    {windowLabels[w]}
-                    <span className={cn('h-2.5 w-2.5 rounded-full', on ? 'bg-red' : 'bg-white/15')} />
-                  </button>
-                )
-              })}
+      {timing.mode === 'times' && (
+        <div className="grid gap-6">
+          <div className="grid gap-8 md:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+            <div>
+              <p className="mb-2.5 text-[14px] font-semibold text-white">1. Pick a day</p>
+              <DatePicker value={day} onChange={setDay} marked={timing.slots.map((s) => s.date)} />
             </div>
-            <ErrorText>{errors.window}</ErrorText>
+            <div>
+              <p className="mb-2.5 text-[14px] font-semibold text-white">
+                2. Tap the times you're free {day ? <span className="font-normal text-white/50">on {longDate(day)}</span> : null}
+              </p>
+              {!day ? (
+                <p className="rounded-2xl border border-dashed border-white/15 p-5 text-[14px] text-white/50">Choose a day on the calendar first.</p>
+              ) : (
+                <div className="grid gap-2" role="group" aria-label="Times of day">
+                  {WINDOWS.map((w) => {
+                    const on = onDay(w)
+                    const disabled = !on && full
+                    return (
+                      <button
+                        key={w}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={on}
+                        disabled={disabled}
+                        onClick={() => toggle(w)}
+                        className={cn(
+                          'lg flex h-14 items-center justify-between rounded-2xl px-5 text-left text-white transition-opacity disabled:opacity-35',
+                          on && 'ring-2 ring-red',
+                        )}
+                        style={{ '--lg-tint': on ? 'rgba(229,35,41,0.16)' : 'rgba(255,255,255,0.045)' } as React.CSSProperties}
+                      >
+                        <span>
+                          <span className="font-display text-[15px] font-semibold">{windowLabels[w]}</span>
+                          <span className="ml-2 text-[13px] text-white/45">{windowHints[w]}</span>
+                        </span>
+                        <span className={cn('grid h-6 w-6 place-items-center rounded-md border', on ? 'border-red bg-red' : 'border-white/25')}>
+                          {on && <Check className="h-3.5 w-3.5" strokeWidth={3.2} />}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="lg rounded-[20px] p-5" style={{ '--lg-tint': 'rgba(255,255,255,0.04)' } as React.CSSProperties}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="font-label text-[13px] font-semibold uppercase tracking-[0.18em] text-white/50">Times that work for you</p>
+              <p className="text-[12.5px] text-white/45">
+                {timing.slots.length} of {MAX_SLOTS} · more options means faster scheduling
+              </p>
+            </div>
+            {timing.slots.length === 0 ? (
+              <p className="mt-3 text-[14px] text-white/50">None yet. Pick a day, then tap the times you're free.</p>
+            ) : (
+              <ul className="mt-3.5 flex flex-wrap gap-2">
+                {sortSlots(timing.slots).map((slot) => (
+                  <li key={slot.date + slot.window}>
+                    <span className="inline-flex h-10 items-center gap-2 rounded-full bg-red/15 pl-4 pr-1.5 text-[14px] font-semibold text-white ring-1 ring-red/50">
+                      {slotLabel(slot)}
+                      <button
+                        type="button"
+                        onClick={() => remove(slot)}
+                        aria-label={`Remove ${slotLabel(slot)}`}
+                        className="grid h-7 w-7 place-items-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ErrorText>{errors.slots}</ErrorText>
           </div>
         </div>
       )}
 
       <p className="flex items-start gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-[14px] leading-relaxed text-white/65">
         <Hourglass className="mt-0.5 h-4 w-4 shrink-0 text-red" />
-        These are your preferences, not a confirmed booking. The team will check availability and confirm a time with you.
+        Nothing is booked yet. The team looks at the times you picked and gets back to you to confirm one.
       </p>
     </div>
   )
@@ -381,10 +459,14 @@ export function ReviewStep({ draft, onEdit }: { draft: Draft; onEdit: (stepKey: 
         </dl>
       </ReviewBlock>
 
-      <ReviewBlock title="Preferred time" onEdit={() => onEdit('timing')}>
-        <p className="text-[15px] text-white">
-          {draft.timing.mode ? describeTiming({ mode: draft.timing.mode, date: draft.timing.date, window: draft.timing.window ?? undefined }) : '—'}
-        </p>
+      <ReviewBlock title={draft.timing.mode === 'times' ? 'Times that work for you' : 'Preferred time'} onEdit={() => onEdit('timing')}>
+        <ul className="grid gap-1.5">
+          {timingLines(draft.timing).map((line) => (
+            <li key={line} className="text-[15px] text-white">
+              {line}
+            </li>
+          ))}
+        </ul>
       </ReviewBlock>
 
       <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-white/60">

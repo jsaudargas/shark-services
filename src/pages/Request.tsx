@@ -5,10 +5,11 @@ import { business, DEMO_MODE } from '@/config/business'
 import { isServiceId, serviceById, type Field } from '@/config/services'
 import {
   describeAnswers,
-  describeTiming,
   methodLabels,
   newLeadId,
+  sortSlots,
   submitLead,
+  timingLines,
   type AnswerValue,
   type Lead,
 } from '@/lib/leads'
@@ -74,6 +75,7 @@ export function RequestPage() {
   const [done, setDone] = useState<{ lead: Lead; delivered: boolean } | null>(null)
   const [savedFlash, setSavedFlash] = useState(false)
   const reduceMotion = useReducedMotion()
+  const honeypot = useRef<HTMLInputElement>(null)
 
   const { draft, stepKey } = state
   const steps = useMemo(() => buildSteps(draft.service), [draft.service])
@@ -234,21 +236,17 @@ export function RequestPage() {
         method: draft.contact.method,
         consent: draft.contact.consent,
       },
-      timing: {
-        mode: draft.timing.mode,
-        date: draft.timing.mode === 'date' ? draft.timing.date : undefined,
-        window: draft.timing.mode === 'date' ? (draft.timing.window ?? undefined) : undefined,
-      },
+      timing: { mode: draft.timing.mode, slots: draft.timing.mode === 'times' ? sortSlots(draft.timing.slots) : [] },
       photos: (photos as string[] | undefined) ?? [],
       source: { page: '/request', utm: utmParams() },
     }
-    const res = await submitLead(lead)
+    const res = await submitLead(lead, honeypot.current?.value ?? '')
     setSubmitting(false)
     if (!res.ok) {
       setSubmitError("We couldn't send your request. Please try again, or call us directly.")
       return
     }
-    track('service_request_submitted', { service: service.id, timing: lead.timing.mode, photos: lead.photos.length })
+    track('service_request_submitted', { service: service.id, timing: lead.timing.mode, times: lead.timing.slots.length, photos: lead.photos.length })
     clearDraft()
     setDone({ lead, delivered: res.delivered })
     window.scrollTo(0, 0)
@@ -314,6 +312,12 @@ export function RequestPage() {
               </p>
 
               <form onSubmit={onSubmit} noValidate className="mt-10">
+                {/* spam trap: hidden from people, bots tend to fill it in */}
+                <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
+                  <label>
+                    Leave this empty <input ref={honeypot} type="text" name="leave_this_empty" tabIndex={-1} autoComplete="off" />
+                  </label>
+                </div>
                 <AnimatePresence mode="wait" initial={false} custom={direction}>
                   <motion.div
                     key={step.key}
@@ -353,7 +357,7 @@ export function RequestPage() {
                         set={setTiming}
                         errors={shownErrors}
                         onModePicked={(m) => {
-                          if (m !== 'date' && !returnToReview) advanceSoon()
+                          if (m !== 'times' && !returnToReview) advanceSoon()
                         }}
                       />
                     )}
@@ -560,9 +564,11 @@ function Summary({ draft }: { draft: Draft }) {
         {draft.timing.mode && (
           <dl className="mt-5 grid gap-2 border-t border-white/10 pt-5 text-[13.5px]">
             <div className="flex justify-between gap-4">
-              <dt className="text-white/45">Preferred</dt>
-              <dd className="text-right text-white/90">
-                {describeTiming({ mode: draft.timing.mode, date: draft.timing.date, window: draft.timing.window ?? undefined })}
+              <dt className="shrink-0 text-white/45">{draft.timing.mode === 'times' ? 'Available' : 'Preferred'}</dt>
+              <dd className="grid gap-1 text-right text-white/90">
+                {timingLines(draft.timing).map((line) => (
+                  <span key={line}>{line}</span>
+                ))}
               </dd>
             </div>
           </dl>
@@ -615,7 +621,7 @@ function Confirmation({ lead, delivered, onStartOver }: { lead: Lead; delivered:
           Thanks{name ? `, ${name}` : ''}. {delivered ? 'Your request is in.' : 'Your request is ready.'}
         </h1>
         <p className="mt-5 max-w-[34rem] text-[17px] leading-relaxed text-white/65">
-          The {business.name} team will review your request and contact you to confirm the details and timing.
+          The {business.name} team will review your request and contact you to confirm the details and which time works.
         </p>
 
         {!delivered && (
@@ -623,7 +629,7 @@ function Confirmation({ lead, delivered, onStartOver }: { lead: Lead; delivered:
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
             <span>
               <b className="font-semibold">Demo mode:</b> this request was saved in this browser only. It has not been sent to {business.name}, and
-              no email, text or calendar entry was created.
+              no email was sent. On the live site the owner gets every request by email.
             </span>
           </p>
         )}
@@ -632,12 +638,12 @@ function Confirmation({ lead, delivered, onStartOver }: { lead: Lead; delivered:
           {[
             ['Reference', lead.id],
             ['Service', service?.name ?? lead.service],
-            ['Preferred time', describeTiming(lead.timing)],
+            [lead.timing.mode === 'times' ? 'Times you offered' : 'Preferred time', timingLines(lead.timing).join('\n')],
             ['We will reach you by', reach],
           ].map(([k, v]) => (
             <div key={k} className="p-5">
               <dt className="font-label text-[12.5px] font-semibold uppercase tracking-[0.16em] text-white/45">{k}</dt>
-              <dd className="mt-1.5 break-words font-display text-[16px] font-semibold">{v}</dd>
+              <dd className="mt-1.5 whitespace-pre-line break-words font-display text-[16px] font-semibold">{v}</dd>
             </div>
           ))}
         </dl>

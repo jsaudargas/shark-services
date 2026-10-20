@@ -14,4 +14,7 @@ This site may be finished by a different person or Claude session than the one t
    time unless a real scheduling backend exists.
 7. Content and questionnaires live in `src/config/`. Change copy and questions there, not in components.
 8. Animate only transform and opacity. Liquid glass classes are in `src/index.css` (`.lg*`).
-9. Run `npm run build` and `npm run lint` before pushing.
+9. Run `npm run build` and `npm run lint` before pushing. Deploy with `npm run build:live` (emails the
+   owner via `public/api/lead.php`). Never commit `public/api/config.php`.
+10. Scheduling is availability only: customers offer times, nothing is booked. Don't add slot booking
+    unless the client asks for a real calendar integration.

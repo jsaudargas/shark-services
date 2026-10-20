@@ -1,6 +1,6 @@
 // Funnel state, step list and validation. UI lives in ./steps and ../pages/Request.
 import { serviceById, type Field, type Screen, type ServiceId } from '@/config/services'
-import type { AnswerValue, ContactMethod, TimeWindow, TimingMode } from '@/lib/leads'
+import { normalizeTiming, type Availability, type AnswerValue, type ContactMethod, type TimingMode } from '@/lib/leads'
 import { isValidEmail, isValidUsPhone, isValidZip } from '@/lib/format'
 
 export interface Draft {
@@ -8,14 +8,15 @@ export interface Draft {
   /** answers are kept per service so switching services and back loses nothing */
   answers: Partial<Record<ServiceId, Record<string, AnswerValue>>>
   contact: { name: string; phone: string; zip: string; email: string; method: ContactMethod; consent: boolean }
-  timing: { mode: TimingMode | null; date: string; window: TimeWindow | null }
+  /** times the customer says work for them; no booking slots are reserved */
+  timing: { mode: TimingMode | null; slots: Availability[] }
 }
 
 export const emptyDraft = (): Draft => ({
   service: null,
   answers: {},
   contact: { name: '', phone: '', zip: '', email: '', method: 'text', consent: false },
-  timing: { mode: null, date: '', window: null },
+  timing: { mode: null, slots: [] },
 })
 
 export type Stage = 0 | 1 | 2 | 3
@@ -90,10 +91,7 @@ export function validateStep(step: Step, draft: Draft): Errors {
   } else if (step.kind === 'timing') {
     const t = draft.timing
     if (!t.mode) errors.mode = 'Choose when you would like us to come by.'
-    if (t.mode === 'date') {
-      if (!t.date) errors.date = 'Pick a preferred date.'
-      if (!t.window) errors.window = 'Pick a time of day, or "No preference".'
-    }
+    if (t.mode === 'times' && t.slots.length === 0) errors.slots = 'Pick at least one day and time of day that works for you.'
   }
   return errors
 }
@@ -113,7 +111,10 @@ export function loadDraft(): { draft: Draft; stepKey: string | null } | null {
     const raw = sessionStorage.getItem(DRAFT_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as { draft: Draft; stepKey: string | null }
-    return { draft: { ...emptyDraft(), ...parsed.draft }, stepKey: parsed.stepKey }
+    const draft = { ...emptyDraft(), ...parsed.draft }
+    // drafts saved before multi-time support had { mode: 'date', date, window }
+    draft.timing = parsed.draft.timing?.mode ? normalizeTiming(parsed.draft.timing) : emptyDraft().timing
+    return { draft, stepKey: parsed.stepKey }
   } catch {
     return null
   }

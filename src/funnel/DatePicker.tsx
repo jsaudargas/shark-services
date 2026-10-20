@@ -6,9 +6,10 @@ import { fromIsoDate, toIsoDate } from '@/lib/format'
 const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const HORIZON_DAYS = 90
 
-/** Preferred-date picker. Earliest choice is tomorrow: same-day service is
- *  not promised (use "As soon as possible" for urgent jobs). */
-export function DatePicker({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+/** Date picker for the customer's availability. Earliest choice is tomorrow:
+ *  same-day service is not promised (use "As soon as possible" for urgent jobs).
+ *  Days in `marked` already have a time of day chosen and show a dot. */
+export function DatePicker({ value, onChange, marked = [] }: { value: string; onChange: (iso: string) => void; marked?: string[] }) {
   const { first, last } = useMemo(() => {
     const t = new Date()
     t.setHours(0, 0, 0, 0)
@@ -57,21 +58,23 @@ export function DatePicker({ value, onChange }: { value: string; onChange: (iso:
           const iso = toIsoDate(d)
           const disabled = d < first || d > last
           const on = iso === value
+          const hasTime = marked.includes(iso)
           return (
             <button
               key={iso}
               type="button"
               disabled={disabled}
               aria-pressed={on}
-              aria-label={d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              aria-label={d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) + (hasTime ? ', time added' : '')}
               onClick={() => onChange(iso)}
               className={cn(
-                'aspect-square rounded-xl text-[14px] font-medium transition-colors',
+                'relative aspect-square rounded-xl text-[14px] font-medium transition-colors',
                 on ? 'bg-red font-semibold text-white' : 'text-white/85 hover:bg-white/10',
                 disabled && 'cursor-not-allowed text-white/20 hover:bg-transparent',
               )}
             >
               {d.getDate()}
+              {hasTime && <span className={cn('absolute bottom-1.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full', on ? 'bg-white' : 'bg-red')} />}
             </button>
           )
         })}

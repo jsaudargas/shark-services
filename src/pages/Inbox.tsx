@@ -7,6 +7,7 @@ import { serviceById, services } from '@/config/services'
 import {
   describeAnswers,
   describeTiming,
+  timingLines,
   loadLeads,
   methodLabels,
   resetLeads,
@@ -150,7 +151,7 @@ export function InboxPage() {
                   <th className="px-5 py-3.5 font-semibold">Customer</th>
                   <th className="px-5 py-3.5 font-semibold">Service</th>
                   <th className="px-5 py-3.5 font-semibold">ZIP</th>
-                  <th className="px-5 py-3.5 font-semibold">Preferred time</th>
+                  <th className="px-5 py-3.5 font-semibold">Times that work</th>
                   <th className="px-5 py-3.5 font-semibold">Status</th>
                 </tr>
               </thead>
@@ -173,7 +174,13 @@ export function InboxPage() {
                         {l.sample && <SampleBadge />}
                       </td>
                       <td className="px-5 py-4 tabular-nums">{l.contact.zip}</td>
-                      <td className="whitespace-nowrap px-5 py-4">{describeTiming(l.timing)}</td>
+                      <td className="px-5 py-4">
+                        {timingLines(l.timing).map((line) => (
+                          <span key={line} className="block whitespace-nowrap">
+                            {line}
+                          </span>
+                        ))}
+                      </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
                           <span className={cn('whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] font-semibold', statusTone[l.status])}>{statusLabels[l.status]}</span>
@@ -275,9 +282,11 @@ function LeadDrawer({ lead, onClose, onStatus }: { lead: Lead; onClose: () => vo
             {rows.length ? rows.map((r) => <Row key={r.label} k={r.label} v={r.value} />) : <p className="text-[14px] text-mute">No details given.</p>}
           </Block>
 
-          <Block title="Preferred time">
-            <Row k="Preference" v={describeTiming(lead.timing)} />
-            <p className="text-[12.5px] text-mute">A preference only. Confirm availability with the customer.</p>
+          <Block title={lead.timing.mode === 'times' ? 'Times that work for the customer' : 'Preferred time'}>
+            {timingLines(lead.timing).map((line, i) => (
+              <Row key={line} k={lead.timing.mode === 'times' ? `Option ${i + 1}` : 'Preference'} v={line} />
+            ))}
+            <p className="text-[12.5px] text-mute">Nothing is booked. Pick one and confirm it with the customer.</p>
           </Block>
 
           {lead.photos.length > 0 && (

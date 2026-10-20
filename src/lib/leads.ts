@@ -1,17 +1,17 @@
 // Lead model + delivery adapter.
 //
-// DEMO: leads are written to this browser's localStorage so the demo inbox can
-// show them. That is NOT a lead delivery system: nothing reaches the business.
-// PRODUCTION: set VITE_LEAD_WEBHOOK_URL (Zapier/Make/n8n/CRM endpoint). The
-// same payload is POSTed there; email/SMS alerts and calendar sync hang off
-// that endpoint, not off this front end.
+// DEMO (default): leads are written to this browser's localStorage so the demo
+// inbox can show them. That is NOT a lead delivery system.
+// LIVE: set VITE_LEAD_ENDPOINT=/api/lead.php at build time. The lead is POSTed
+// to public/api/lead.php on the same Hostinger site, which emails the owner
+// (PHP mail(), no third-party service, no credits). See public/api/README.md.
 
-import { DEMO_MODE, leadWebhookUrl } from '@/config/business'
+import { DEMO_MODE, leadEndpoint, mirrorToDemoInbox } from '@/config/business'
 import { serviceById, type ServiceId } from '@/config/services'
 
 export type AnswerValue = string | string[]
 export type ContactMethod = 'call' | 'text' | 'email'
-export type TimingMode = 'asap' | 'date' | 'flexible'
+export type TimingMode = 'asap' | 'times' | 'flexible'
 export type TimeWindow = 'morning' | 'afternoon' | 'evening' | 'any'
 export type LeadStatus = 'new' | 'contacted' | 'scheduled' | 'closed'
 
@@ -24,11 +24,19 @@ export interface LeadContact {
   consent: boolean
 }
 
+/** A day + time of day the customer says works for them. Not a booked slot. */
+export interface Availability {
+  date: string // yyyy-mm-dd
+  window: TimeWindow
+}
+
 export interface LeadTiming {
   mode: TimingMode
-  date?: string // yyyy-mm-dd
-  window?: TimeWindow
+  /** only for mode 'times': every option the customer offered, in date order */
+  slots: Availability[]
 }
+
+export const MAX_SLOTS = 5
 
 export interface Lead {
   id: string
@@ -57,7 +65,7 @@ export const windowLabels: Record<TimeWindow, string> = {
   morning: 'Morning',
   afternoon: 'Afternoon',
   evening: 'Evening',
-  any: 'No preference',
+  any: 'Any time',
 }
 
 const STORE_KEY = 'shark-demo-leads'
@@ -70,7 +78,7 @@ export function newLeadId() {
 export function loadLeads(): Lead[] {
   try {
     const raw = localStorage.getItem(STORE_KEY)
-    if (raw) return JSON.parse(raw) as Lead[]
+    if (raw) return (JSON.parse(raw) as Lead[]).map((l) => ({ ...l, timing: normalizeTiming(l.timing) }))
   } catch {
     /* storage blocked or corrupt: fall through to samples */
   }
@@ -96,19 +104,42 @@ export function resetLeads() {
 
 export interface SubmitResult {
   ok: boolean
-  delivered: boolean // true only when a real endpoint accepted the lead
+  delivered: boolean // true only when the server accepted the lead
   error?: string
 }
 
-export async function submitLead(lead: Lead): Promise<SubmitResult> {
-  if (!DEMO_MODE && leadWebhookUrl) {
+/** What the server needs to write the owner's email: readable rows, not ids. */
+function emailPayload(lead: Lead, honeypot: string) {
+  return {
+    id: lead.id,
+    createdAt: lead.createdAt,
+    service: serviceById(lead.service)?.name ?? lead.service,
+    details: describeAnswers(lead.service, lead.answers),
+    contact: { ...lead.contact, method: methodLabels[lead.contact.method] },
+    timing: timingLines(lead.timing),
+    photos: lead.photos,
+    source: lead.source,
+    website: honeypot, // spam trap: real visitors never fill this
+  }
+}
+
+function storeLocally(lead: Lead) {
+  const saved = saveLeads([lead, ...loadLeads()])
+  // storage quota: retry without photos rather than losing the lead
+  if (!saved && lead.photos.length) saveLeads([{ ...lead, photos: [] }, ...loadLeads()])
+}
+
+export async function submitLead(lead: Lead, honeypot = ''): Promise<SubmitResult> {
+  if (!DEMO_MODE && leadEndpoint) {
     try {
-      const res = await fetch(leadWebhookUrl, {
+      const res = await fetch(leadEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...lead, photos: lead.photos.length }),
+        body: JSON.stringify(emailPayload(lead, honeypot)),
       })
-      if (!res.ok) return { ok: false, delivered: false, error: `Server responded ${res.status}` }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      if (!res.ok || !body.ok) return { ok: false, delivered: false, error: body.error ?? `Server responded ${res.status}` }
+      if (mirrorToDemoInbox) storeLocally(lead)
       return { ok: true, delivered: true }
     } catch {
       return { ok: false, delivered: false, error: 'Network error' }
@@ -116,11 +147,7 @@ export async function submitLead(lead: Lead): Promise<SubmitResult> {
   }
   // demo: short pause so the sending state is visible, then store locally
   await new Promise((r) => setTimeout(r, 900))
-  const saved = saveLeads([lead, ...loadLeads()])
-  if (!saved && lead.photos.length) {
-    // storage quota: retry without photos rather than losing the lead
-    saveLeads([{ ...lead, photos: [] }, ...loadLeads()])
-  }
+  storeLocally(lead)
   return { ok: true, delivered: false }
 }
 
@@ -155,13 +182,33 @@ export function describeAnswers(serviceId: ServiceId, answers: Record<string, An
   return rows
 }
 
-export function describeTiming(t: LeadTiming) {
-  if (t.mode === 'asap') return 'As soon as possible'
-  if (t.mode === 'flexible') return 'Flexible'
-  if (!t.date) return 'Date not chosen'
-  const d = new Date(t.date + 'T12:00:00')
+export function slotLabel(slot: Availability) {
+  const d = new Date(slot.date + 'T12:00:00')
   const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-  return t.window ? `${day} · ${windowLabels[t.window]}` : day
+  return `${day} · ${windowLabels[slot.window]}`
+}
+
+/** One line per option, for the review screen, inbox and email. */
+export function timingLines(t: { mode: TimingMode | null; slots: Availability[] }): string[] {
+  if (t.mode === 'asap') return ['As soon as possible']
+  if (t.mode === 'flexible') return ["Flexible, any time that suits the team"]
+  if (t.mode === 'times') return t.slots.length ? sortSlots(t.slots).map(slotLabel) : ['No times chosen']
+  return []
+}
+
+export const describeTiming = (t: { mode: TimingMode | null; slots: Availability[] }) => timingLines(t).join(' / ') || '—'
+
+export const sortSlots = (slots: Availability[]) => {
+  const order: TimeWindow[] = ['morning', 'afternoon', 'evening', 'any']
+  return [...slots].sort((a, b) => a.date.localeCompare(b.date) || order.indexOf(a.window) - order.indexOf(b.window))
+}
+
+/** Leads saved before multi-time support stored a single date + window. */
+export function normalizeTiming(t: unknown): LeadTiming {
+  const x = (t ?? {}) as { mode?: string; slots?: Availability[]; date?: string; window?: TimeWindow }
+  if (x.mode === 'date') return { mode: 'times', slots: x.date ? [{ date: x.date, window: x.window ?? 'any' }] : [] }
+  const mode: TimingMode = x.mode === 'asap' || x.mode === 'flexible' || x.mode === 'times' ? x.mode : 'flexible'
+  return { mode, slots: Array.isArray(x.slots) ? x.slots : [] }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +233,7 @@ function sampleLeads(): Lead[] {
       service: 'junk',
       answers: { items: ['furniture', 'appliances'], amount: 'several', location: 'basement' },
       contact: { name: 'Sample Customer A', phone: '(555) 010-0101', zip: '11735', method: 'text', consent: true },
-      timing: { mode: 'date', date: inDays(3), window: 'morning' },
+      timing: { mode: 'times', slots: [{ date: inDays(3), window: 'morning' }, { date: inDays(4), window: 'evening' }] },
     },
     {
       ...base,
@@ -197,7 +244,7 @@ function sampleLeads(): Lead[] {
       service: 'mechanic',
       answers: { need: 'brakes', year: '2017', make: 'Honda', model: 'Accord', issue: 'Squeaking when I brake' },
       contact: { name: 'Sample Customer B', phone: '(555) 010-0102', zip: '11550', email: 'sample.b@example.com', method: 'call', consent: true },
-      timing: { mode: 'asap' },
+      timing: { mode: 'asap', slots: [] },
     },
     {
       ...base,
@@ -208,7 +255,7 @@ function sampleLeads(): Lead[] {
       service: 'snow-leaf',
       answers: { work: ['leaves', 'hauling'], property: 'residential', area: 'yard' },
       contact: { name: 'Sample Customer C', phone: '(555) 010-0103', zip: '11779', method: 'text', consent: true },
-      timing: { mode: 'flexible' },
+      timing: { mode: 'flexible', slots: [] },
     },
   ]
 }

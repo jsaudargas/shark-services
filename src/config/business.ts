@@ -15,7 +15,11 @@ export const business = {
   email: null as string | null,
 } as const
 
-// Demo mode: submissions are stored in this browser only (localStorage) and
-// are NOT sent to the business. Set VITE_LEAD_WEBHOOK_URL to deliver for real.
-export const leadWebhookUrl: string | undefined = import.meta.env.VITE_LEAD_WEBHOOK_URL || undefined
-export const DEMO_MODE = !leadWebhookUrl
+// Demo mode (default): submissions are stored in this browser only
+// (localStorage) and are NOT sent to the business.
+// Live mode: build with VITE_LEAD_ENDPOINT=/api/lead.php so each request is
+// POSTed to the PHP mailer in public/api, which emails the owner.
+export const leadEndpoint: string | undefined = import.meta.env.VITE_LEAD_ENDPOINT || undefined
+export const DEMO_MODE = !leadEndpoint
+/** Also keep a copy in the browser-local demo inbox (handy for sales demos). */
+export const mirrorToDemoInbox = import.meta.env.VITE_DEMO_INBOX === 'on'

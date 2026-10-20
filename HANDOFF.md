@@ -9,7 +9,7 @@ should be able to continue from here without asking.
 ## Current status
 
 - **Client:** S.H.A.R.K. Services, Long Island NY, (516) 244-8782, IG @s.h.a.r.kservices
-- **Phase:** working sales demo, desktop-first. Funnel, homepage and demo inbox are built and tested end to end.
+- **Phase:** working sales demo, desktop-first. Funnel, homepage and demo inbox are built and tested end to end. Owner email delivery is built (`npm run build:live`) and tested locally; it has not been deployed yet.
 - **Repo:** https://github.com/jsaudargas/shark-services (renamed from `new-client-website`; old links redirect)
 - **Next step:** show the demo to the owner, collect real photos and confirm the open facts below.
 
@@ -26,8 +26,9 @@ Confirm with the client (do not invent any of these):
 - [ ] Legal entity name for the footer, and a privacy policy page before collecting real leads
 
 Build work:
-- [ ] Connect real lead delivery: set `VITE_LEAD_WEBHOOK_URL` (Zapier/Make/CRM) and add email/SMS alerts there
-- [ ] Real photo upload (currently previews stay in the browser; webhook payload sends only the photo count)
+- [ ] Go live with email delivery: create a sender mailbox on the client's domain, add `public_html/api/config.php` (owner's email), deploy `npm run build:live`, then send one test request and check spam. Steps are in `public/api/README.md`
+- [ ] Confirm the owner's email address (where leads go) and whether evenings are actually offered. Time-of-day labels: Morning 8am to 12pm, Afternoon 12pm to 4pm, Evening 4pm to 7pm (my definitions, not confirmed hours)
+- [ ] Optional later: a real online lead inbox (database + login). Today the owner's email inbox is the record, and the `/demo/leads` page is browser-local only
 - [ ] Mobile pass. Explicitly out of scope for this demo (per Justinas, 2026-10-20). Layout is responsive and has no horizontal scroll at 390px, but it has not been polished or tested on real phones
 - [ ] Performance: JS is ~154 KB gzipped, mostly framer-motion (only used for funnel step transitions and could be replaced by CSS). No prerender yet (SPA), so add one before launch for SEO, per the Kodeborn SOP
 - [ ] SEO/launch items from the SOP: robots.txt, sitemap, OG image, JSON-LD LocalBusiness, analytics (GA4), Search Console
@@ -36,6 +37,18 @@ Build work:
 ---
 
 ## Log
+
+### 2026-10-20 · Owner email delivery + customer-chosen times (no booking slots)
+**Done**
+- **Scheduling:** removed the single date + window. The customer now picks "As soon as possible", "I'm flexible", or **several day + time-of-day options that work for them** (up to 5). There's a calendar with dots on chosen days, removable chips, and "Any time" replaces specific windows for that day. Nothing is reserved; the copy says the team confirms one. These carry through to the review screen, side summary, confirmation, demo inbox (one line per option) and CSV. Old saved drafts and leads are converted automatically.
+- **Owner email, free:** `public/api/lead.php` runs on the site's own Hostinger hosting and uses PHP `mail()`, with no Zapier, EmailJS, API keys or credits. The email has the service, answers, the customer's times, contact details with Call/Text/Email buttons, Reply-To set to the customer, and photos as attachments. It's an HTML email with a plain-text fallback, in New York time.
+- Protection: server-side validation, a hidden spam-trap field (`leave_this_empty`), 6 requests per IP per 10 minutes, a 6 MB cap, image checks, no header injection, and `.htaccess` blocks `config.php`. Optional JSONL backup of every lead outside `public_html`.
+- `npm run build:live` (via the committed `.env.live`) switches the site to email mode. Demo notices disappear and the confirmation says "Your request is in". `npm run build` stays in demo mode.
+- Tested under PHP 8.3 (php-wasm, `transport => 'file'`): valid, invalid, spam trap, bad JSON, header injection and rate limit all pass. Also tested the full live path: the built site in a browser, through the real form, to `lead.php`, which produced the email shown to Justinas. Lint and both builds pass.
+- Gotcha found: in Git Bash on Windows, `VITE_LEAD_ENDPOINT=/api/lead.php npm run build` gets rewritten to `C:/Program Files/Git/api/lead.php`. Always use `npm run build:live`.
+
+**Left**
+- See "What's left to finish" above (going live with email, confirming the owner's address and evening hours).
 
 ### 2026-10-20 · Demo build: homepage, booking funnel, demo inbox
 **Done**

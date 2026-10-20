@@ -1,0 +1,5 @@
+# Only lead.php is public. Config, examples, test output and docs are not.
+<FilesMatch "^(config|config\.example)\.php$|\.(md|eml|html|jsonl)$">
+  Require all denied
+</FilesMatch>
+Options -Indexes
